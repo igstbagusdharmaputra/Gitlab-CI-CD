@@ -1,0 +1,40 @@
+version: '3.3'
+services:
+  gitlab:
+      container_name: gitlab-srv
+      image: gitlab/gitlab-ee:latest
+      restart: always
+      hostname: gitlab.dharma.instructype.com
+      environment:
+          GITLAB_OMNIBUS_CONFIG: |
+              external_url 'https://gitlab.dharma.instructype.com'
+              registry_external_url 'https://gitlab.dharma.instructype.com:5050'
+              registry['enable'] = true
+              gitlab_rails['gitlab_shell_ssh_port'] = 2224
+      # Add any other gitlab.rb configuration here, each on its own line
+      ports:
+          - '80:80'
+          - '443:443'
+          - '2224:22'
+          - '5050:5050'
+      volumes:
+          - '$GITLAB_HOME1/config:/etc/gitlab'
+          - '$GITLAB_HOME1/logs:/var/log/gitlab'
+          - '$GITLAB_HOME1/data:/var/opt/gitlab'
+      networks:
+          - gitlabnetwork
+
+  gitlab-runner:
+      container_name: gitlab-run
+      restart: always
+      image: gitlab/gitlab-runner:latest
+      volumes:
+          - /var/run/docker.sock:/var/run/docker.sock
+          - "$HOME/.docker/config.json:/root/.docker/config.json"
+          - '$GITLAB_HOME1/gitlab-runner-volume/config:/etc/gitlab-runner'
+      networks:
+          - gitlabnetwork
+
+networks:
+  gitlabnetwork:
+     driver: bridge

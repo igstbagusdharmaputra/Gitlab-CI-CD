@@ -1,0 +1,84 @@
+# variables:
+#     HELLO: World!
+
+# test:
+#     script:
+#         - echo $HELLO
+
+stages:
+  - build
+  - test
+  - build-container
+  - deploy
+build-app:
+  image: node:alpine
+  stage: build
+  before_script:
+     - npm install
+  script:
+     - npm run build
+  artifacts:
+     untracked: true
+
+run-test:
+  image: node:alpine
+  stage: test
+  script:
+    - npm run test
+  artifacts:
+    untracked: true
+
+docker-build-master:
+  # Official docker image.
+  image: docker:latest
+  stage: build-container
+  dependencies: 
+    - build-app
+  services:
+    - docker:dind
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+  script:
+    - docker build --pull -t "$CI_REGISTRY_IMAGE" .
+    - docker push "$CI_REGISTRY_IMAGE"
+  only:
+    - master
+deploy-staging:
+  stage: deploy
+  image: alpine:latest
+  environment:
+     name: staging
+     url: http://stag.dharma.instructype.com
+  before_script:
+    - 'which ssh-agent || ( apk update && apk add --no-cache openssh )'
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+    - chmod 700 ~/.ssh/id_rsa
+    - eval "$(ssh-agent -s)"
+    - ssh-add ~/.ssh/id_rsa
+    - cat ~/.ssh/id_rsa
+    - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
+  script:
+     - ssh -o StrictHostKeyChecking=no root@52.20.245.122 "export APP_IMAGE_STG=$CI_REGISTRY_IMAGE && docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY && cd /root/app-typescript && git pull && docker-compose -f docker-compose.stg.yml down && docker-compose -f docker-compose.stg.yml pull && docker-compose -f docker-compose.stg.yml up -d"
+  only:
+    - master
+
+deploy-production:
+  stage: deploy
+  image: alpine:latest
+  environment:
+     name: production
+     url: http://prod.dharma.instructype.com
+  before_script:
+    - 'which ssh-agent || ( apk update && apk add --no-cache openssh )'
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+    - chmod 700 ~/.ssh/id_rsa
+    - eval "$(ssh-agent -s)"
+    - ssh-add ~/.ssh/id_rsa
+    - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
+  script:
+    - ssh -o StrictHostKeyChecking=no root@52.20.245.122 "export APP_IMAGE_PROD=$CI_REGISTRY_IMAGE && docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY && cd /root/app-typescript && git pull && docker-compose -f docker-compose.prod.yml down && docker-compose -f docker-compose.prod.yml pull && docker-compose -f docker-compose.prod.yml up -d"
+  when: manual
+  only:
+    - master
